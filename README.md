@@ -2,3 +2,4 @@
 列表:  
 ball_game_1.cpp 适用于Linux(ubuntu)系统的弹球游戏；  
 ball_game_2.cpp 适用于Windows系统的弹球游戏；  
+audio_capture 一个自研的C++音频捕获库

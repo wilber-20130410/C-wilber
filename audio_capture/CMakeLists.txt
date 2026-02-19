@@ -1,87 +1,124 @@
-cmake_minimum_required(VERSION 3.12)
-project(AudioCapture LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.14)
+project(audio_capture)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(WIN32)
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
+# 设置输出目录
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
-find_package(pybind11 CONFIG REQUIRED HINTS "${Python3_SITELIB}")
+# 查找Python
+find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
-if(NOT pybind11_FOUND)
-    message(STATUS "pybind11 not found via CONFIG, trying MODULE mode")
-    find_package(pybind11 MODULE REQUIRED)
-endif()
-
-message(STATUS "Python found: ${Python_EXECUTABLE}")
-message(STATUS "Python include dirs: ${Python_INCLUDE_DIRS}")
-message(STATUS "Python library: ${Python_LIBRARIES}")
-
-include_directories(${CMAKE_SOURCE_DIR}/include)
-
-if(WIN32)
-    add_definitions(-D_WIN32_WINNT=0x0600)
-    add_definitions(-DNOMINMAX)
-    add_definitions(-D_USE_MATH_DEFINES)
-    set(WINDOWS_LIBS ole32 avrt winmm dsound)
-endif()
-
-option(BUILD_SHARED_LIBS "Build shared libraries" ON)
-
-add_library(audio_capture_shared SHARED
-    src/audio_capture.cpp
+# 手动设置pybind11路径 - 不使用find_package
+# 直接使用Python的site-packages路径
+execute_process(
+    COMMAND ${Python_EXECUTABLE} -c "import pybind11; print(pybind11.get_include())"
+    OUTPUT_VARIABLE PYBIND11_INCLUDE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
 )
 
-set_target_properties(audio_capture_shared PROPERTIES
-    OUTPUT_NAME "audio_capture"
-    DEFINE_SYMBOL "AUDIO_CAPTURE_EXPORTS"
-)
-
-if(WIN32)
-    target_link_libraries(audio_capture_shared PRIVATE ${WINDOWS_LIBS})
-endif()
-
-pybind11_add_module(audio_capture 
-    src/py_audio_capture.cpp
-)
-
-set_target_properties(audio_capture PROPERTIES
-    SUFFIX ".pyd"
-    OUTPUT_NAME "audio_capture_1"
-)
-
-target_link_libraries(audio_capture PRIVATE 
-    audio_capture_shared
-    pybind11::headers
-)
-
-if(WIN32)
-    target_link_libraries(audio_capture PRIVATE ${WINDOWS_LIBS})
-endif()
-
-install(TARGETS audio_capture_shared
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-)
-
-install(TARGETS audio_capture
-    LIBRARY DESTINATION python
-    RUNTIME DESTINATION python
-)
-
-if(WIN32)
-    add_custom_command(TARGET audio_capture POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:audio_capture_shared>
-        $<TARGET_FILE_DIR:audio_capture>
-        COMMENT "Copying audio_capture DLL to Python module directory"
+if(NOT PYBIND11_INCLUDE_DIR)
+    # 如果上面的命令失败，尝试备选方法
+    execute_process(
+        COMMAND ${Python_EXECUTABLE} -c "import sys; import os; sys.path.insert(0, os.path.expanduser('~/.local/lib/python*/site-packages')); import pybind11; print(pybind11.get_include())"
+        OUTPUT_VARIABLE PYBIND11_INCLUDE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
     )
 endif()
+
+if(NOT PYBIND11_INCLUDE_DIR)
+    message(FATAL_ERROR "无法找到pybind11。请安装: pip3 install pybind11")
+endif()
+
+message(STATUS "找到pybind11包含目录: ${PYBIND11_INCLUDE_DIR}")
+
+# 创建pybind11接口目标
+add_library(pybind11_interface INTERFACE)
+target_include_directories(pybind11_interface INTERFACE ${PYBIND11_INCLUDE_DIR})
+target_compile_definitions(pybind11_interface INTERFACE 
+    PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF
+)
+
+# 平台特定设置
+if(WIN32)
+    add_definitions(-D_WIN32_WINNT=0x0600 -DNOMINMAX)
+    set(PLATFORM_LIBS ole32 avrt)
+elseif(UNIX AND NOT APPLE)
+    # Linux - 查找PulseAudio和ALSA
+    find_package(PkgConfig REQUIRED)
+    
+    set(PLATFORM_LIBS "")
+    
+    pkg_check_modules(PULSEAUDIO libpulse libpulse-simple)
+    if(PULSEAUDIO_FOUND)
+        message(STATUS "找到PulseAudio")
+        include_directories(${PULSEAUDIO_INCLUDE_DIRS})
+        set(PLATFORM_LIBS ${PLATFORM_LIBS} ${PULSEAUDIO_LIBRARIES})
+        add_definitions(-DHAVE_PULSEAUDIO)
+    endif()
+    
+    find_library(ALSA_LIB asound)
+    if(ALSA_LIB)
+        message(STATUS "找到ALSA: ${ALSA_LIB}")
+        set(PLATFORM_LIBS ${PLATFORM_LIBS} ${ALSA_LIB})
+        add_definitions(-DHAVE_ALSA)
+    endif()
+    
+    # 添加pthread
+    set(PLATFORM_LIBS ${PLATFORM_LIBS} pthread)
+    
+elseif(APPLE)
+    find_library(COREAUDIO_LIB CoreAudio)
+    find_library(AUDIO_TOOLBOX_LIB AudioToolbox)
+    set(PLATFORM_LIBS ${COREAUDIO_LIB} ${AUDIO_TOOLBOX_LIB})
+    add_definitions(-DHAVE_COREAUDIO)
+endif()
+
+# 包含目录
+include_directories(${Python_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# 源文件
+set(SOURCES
+    audio_capture.cpp
+    py_audio_capture.cpp
+)
+
+# 创建Python模块
+add_library(audio_capture MODULE ${SOURCES})
+
+# 设置目标属性
+set_target_properties(audio_capture PROPERTIES
+    PREFIX "${PYTHON_MODULE_PREFIX}"
+    SUFFIX ".so"
+    OUTPUT_NAME "audio_capture"
+)
+
+# 链接库
+target_link_libraries(audio_capture PRIVATE
+    pybind11_interface
+    ${Python_LIBRARIES}
+    ${PLATFORM_LIBS}
+)
+
+# 如果PulseAudio有额外的链接库
+if(PULSEAUDIO_FOUND)
+    target_link_libraries(audio_capture PRIVATE ${PULSEAUDIO_LDFLAGS})
+endif()
+
+# 设置编译选项
+target_compile_options(audio_capture PRIVATE -fPIC)
+
+# 复制测试文件
+configure_file(test_audio_capture.py ${CMAKE_BINARY_DIR}/test_audio_capture.py COPYONLY)
+
+# 显示配置信息
+message(STATUS "配置完成:")
+message(STATUS "  Python版本: ${Python_VERSION}")
+message(STATUS "  pybind11路径: ${PYBIND11_INCLUDE_DIR}")
+message(STATUS "  平台库: ${PLATFORM_LIBS}")

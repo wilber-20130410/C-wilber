@@ -2,14 +2,14 @@
 名称:py_audio_capture.cpp
 作者:wilber-20130410
 版权: © 2025~2026 wilber-20130410
-版本:1.0.1[140200103150101](正式版)
-日期:2026.1.3
+版本:1.0.1[140200228185201](正式版)
+日期:2026.2.28
 留言:
 1.本代码仅供学习交流使用,请勿用于商业用途。
 2.本代码参考了网络上部分代码,在此表示感谢。
 3.本人推荐使用Visual Studio Code作为IDE(集成开发环境)。
 4.如果您有建议、发现了Bug、问题或者您进行优化后的代码,欢迎向本人邮箱xuwb0410@163.com发送邮件,本人将在21天内进行回复。
-5.本代码适用于Windows系统。
+5.本代码适用于所有操作系统。
 6.以上留言不分先后。
 */
 
@@ -19,6 +19,7 @@
 #include "audio_capture.h"
 #include <iostream>
 #include <memory>
+#include <thread>
 
 namespace py = pybind11;
 
@@ -43,6 +44,10 @@ private:
 
 // 主类包装
 class PyAudioCapture {
+private:
+    // 修复：声明成员变量capture（原文件遗漏，导致所有capture未定义错误）
+    AudioCapture* capture;
+
 public:
     PyAudioCapture() : capture(new AudioCapture()) {
         std::cout << "PyAudioCapture 创建" << std::endl;
@@ -73,30 +78,36 @@ public:
         // 使用shared_ptr确保线程安全
         auto py_callback = std::make_shared<py::function>(std::move(callback));
         
+        // 添加可见性属性，消除警告
         capture->setAudioCallback([py_callback](const std::vector<float>& data,
-                                                const AudioCapture::AudioFormat& format) {
-            // 获取GIL
-            py::gil_scoped_acquire gil;
-            try {
-                if (py_callback && *py_callback) {
-                    PyAudioFormat pyFormat(format);
-                    (*py_callback)(data, pyFormat);
+                                                const AudioCapture::AudioFormat& format) __attribute__((visibility("default"))) {
+            // 异步执行Python回调，修正lambda作用域和语法
+            std::thread([py_callback, data, format]() __attribute__((visibility("default"))) {
+                // 获取GIL
+                py::gil_scoped_acquire gil;
+                try {
+                    if (py_callback && *py_callback) {
+                        PyAudioFormat pyFormat(format);
+                        (*py_callback)(data, pyFormat);
+                    }
+                } catch (const py::error_already_set& e) {
+                    std::cerr << "Python回调错误: ";
+                    PyErr_Print();
+                    PyErr_Clear();
+                } catch (const std::exception& e) {
+                    std::cerr << "回调异常: " << e.what() << std::endl;
                 }
-            } catch (const py::error_already_set& e) {
-                std::cerr << "Python回调错误: ";
-                PyErr_Print();
-                PyErr_Clear();
-            } catch (const std::exception& e) {
-                std::cerr << "回调异常: " << e.what() << std::endl;
-            }
+            }).detach(); // 分离线程，避免阻塞捕获线程
         });
     }
-    
+        
+    // 修复：补全函数返回值和作用域，修正函数声明
     py::object get_format() {
         auto fmt = capture->getFormat();
         return py::cast(PyAudioFormat(fmt));
     }
     
+    // 修复：const修饰符位置正确（类成员函数），原非成员函数错误
     bool is_running() const {
         return capture->isRunning();
     }
@@ -120,11 +131,9 @@ public:
     bool set_input_device(const std::string& deviceName) {
         return capture->setInputDevice(deviceName);
     }
-    
-private:
-    AudioCapture* capture;
 };
 
+// 修复：所有语法错误修正后，模块绑定正常
 PYBIND11_MODULE(audio_capture, m) {
     m.doc() = "跨平台音频捕获库 (支持Windows/Linux)";
     

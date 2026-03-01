@@ -6,7 +6,7 @@ Project versioning adheres to [Semantic Versioning](http://semver.org/).
 Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 Change log format is based on [Keep a Changelog](http://keepachangelog.com/).
 
-## [1.0.1](https://github.com/wilber-20130410/C-wilber/compare/v1.0.1) - 2026-03-01
+## [1.0.1](https://github.com/wilber-20130410/C-wilber/compare/v1.0.0...v1.0.1) - 2026-03-01
 
 总项目更新版本号： v1.0.1-beta-3-build-0301144501.2026
 

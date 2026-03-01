@@ -13,6 +13,12 @@
 6.以上留言不分先后。
 */
 
+#ifdef _MSC_VER
+    #define ATTRIBUTE_VISIBILITY_DEFAULT
+#else
+    #define ATTRIBUTE_VISIBILITY_DEFAULT __attribute__((visibility("default")))
+#endif
+
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
@@ -45,7 +51,6 @@ private:
 // 主类包装
 class PyAudioCapture {
 private:
-    // 修复：声明成员变量capture（原文件遗漏，导致所有capture未定义错误）
     AudioCapture* capture;
 
 public:
@@ -78,11 +83,11 @@ public:
         // 使用shared_ptr确保线程安全
         auto py_callback = std::make_shared<py::function>(std::move(callback));
         
-        // 添加可见性属性，消除警告
+        // 移除 GCC 特有的 __attribute__，使用标准 C++
         capture->setAudioCallback([py_callback](const std::vector<float>& data,
-                                                const AudioCapture::AudioFormat& format) __attribute__((visibility("default"))) {
-            // 异步执行Python回调，修正lambda作用域和语法
-            std::thread([py_callback, data, format]() __attribute__((visibility("default"))) {
+                                                const AudioCapture::AudioFormat& format) {
+            // 异步执行Python回调
+            std::thread([py_callback, data, format]() {
                 // 获取GIL
                 py::gil_scoped_acquire gil;
                 try {
@@ -100,14 +105,12 @@ public:
             }).detach(); // 分离线程，避免阻塞捕获线程
         });
     }
-        
-    // 修复：补全函数返回值和作用域，修正函数声明
+    
     py::object get_format() {
         auto fmt = capture->getFormat();
         return py::cast(PyAudioFormat(fmt));
     }
     
-    // 修复：const修饰符位置正确（类成员函数），原非成员函数错误
     bool is_running() const {
         return capture->isRunning();
     }
@@ -133,7 +136,6 @@ public:
     }
 };
 
-// 修复：所有语法错误修正后，模块绑定正常
 PYBIND11_MODULE(audio_capture, m) {
     m.doc() = "跨平台音频捕获库 (支持Windows/Linux)";
     
@@ -157,7 +159,7 @@ PYBIND11_MODULE(audio_capture, m) {
     py::class_<PyAudioCapture>(m, "AudioCapture")
         .def(py::init<>(), "创建音频捕获对象")
         .def("initialize", &PyAudioCapture::initialize,
-             py::arg("backend") = AudioCapture::Backend::AUTO,
+             py::arg("backend") = static_cast<int>(AudioCapture::Backend::AUTO),
              "初始化音频捕获系统")
         .def("start_capture", &PyAudioCapture::start_capture,
              "开始音频捕获")

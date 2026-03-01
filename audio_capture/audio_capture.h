@@ -27,18 +27,15 @@
 
 // 平台检测
 #ifdef _WIN32
-    #define AUDIO_PLATFORM_WINDOWS
     #include <windows.h>
     #include <mmdeviceapi.h>
     #include <audioclient.h>
     #include <functiondiscoverykeys.h>
 #elif defined(__linux__)
-    #define AUDIO_PLATFORM_LINUX
     #include <pulse/pulseaudio.h>
     #include <pulse/simple.h>
     #include <alsa/asoundlib.h>
 #elif defined(__APPLE__)
-    #define AUDIO_PLATFORM_MACOS
     #include <CoreAudio/CoreAudio.h>
     #include <AudioToolbox/AudioToolbox.h>
 #endif

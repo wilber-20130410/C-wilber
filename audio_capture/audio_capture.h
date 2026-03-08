@@ -2,7 +2,7 @@
 名称:audio_capture.h
 作者:wilber-20130410
 版权: © 2025~2026 wilber-20130410
-版本:1.0.1[140200228185201](正式版)
+版本:1.0.1[140200301144501](正式版)
 日期:2026.2.28
 留言:
 1.本代码仅供学习交流使用,请勿用于商业用途。
@@ -27,18 +27,15 @@
 
 // 平台检测
 #ifdef _WIN32
-    #define AUDIO_PLATFORM_WINDOWS
     #include <windows.h>
     #include <mmdeviceapi.h>
     #include <audioclient.h>
     #include <functiondiscoverykeys.h>
 #elif defined(__linux__)
-    #define AUDIO_PLATFORM_LINUX
     #include <pulse/pulseaudio.h>
     #include <pulse/simple.h>
     #include <alsa/asoundlib.h>
 #elif defined(__APPLE__)
-    #define AUDIO_PLATFORM_MACOS
     #include <CoreAudio/CoreAudio.h>
     #include <AudioToolbox/AudioToolbox.h>
 #endif
